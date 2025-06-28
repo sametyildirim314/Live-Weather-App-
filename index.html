@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerçek Zamanlı Hava Durumu Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌤️ Gerçek Zamanlı Hava Durumu</h1>
+            <p>Türkiye'nin büyük şehirlerinden canlı hava durumu verileri</p>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-dot" id="connectionStatus"></div>
+                <span id="connectionText">Bağlanıyor...</span>
+            </div>
+            <div class="status-item">
+                <span>📊 Son Güncelleme: <strong id="lastUpdate">-</strong></span>
+            </div>
+        </div>
+
+        <div class="alert" id="alertBox">
+            Bağlantı hatası oluştu. Yeniden bağlanmaya çalışılıyor...
+        </div>
+
+        <div class="weather-grid" id="weatherGrid">
+            <div class="loading">Hava durumu verileri yükleniyor...</div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script>
+        class WeatherDashboard {
+            constructor() {
+                this.socket = null;
+                this.weatherData = new Map();
+                this.connectionStatus = document.getElementById('connectionStatus');
+                this.connectionText = document.getElementById('connectionText');
+                this.lastUpdate = document.getElementById('lastUpdate');
+                this.weatherGrid = document.getElementById('weatherGrid');
+                this.alertBox = document.getElementById('alertBox');
+                
+                this.initializeSocket();
+            }
+
+            initializeSocket() {
+                try {
+                    this.socket = io({
+                        transports: ['websocket', 'polling'],
+                        timeout: 5000,
+                        forceNew: true
+                    });
+                    
+                    this.initializeSocketEvents();
+                } catch (error) {
+                    this.showAlert('Socket bağlantısı başlatılamadı');
+                }
+            }
+
+            initializeSocketEvents() {
+                this.socket.on('connect', () => {
+                    this.updateConnectionStatus(true);
+                    setTimeout(() => {
+                        this.socket.emit('requestLatestData');
+                    }, 1000);
+                });
+
+                this.socket.on('disconnect', (reason) => {
+                    this.updateConnectionStatus(false);
+                });
+
+                this.socket.on('connect_error', (error) => {
+                    this.updateConnectionStatus(false);
+                    this.showAlert('Sunucuya bağlanılamıyor');
+                });
+
+                this.socket.on('weatherUpdate', (data) => {
+                    this.handleWeatherUpdate(data);
+                });
+
+                this.socket.on('latestWeatherData', (data) => {
+                    this.handleLatestData(data);
+                });
+
+                this.socket.on('error', (error) => {
+                    this.showAlert(error.message);
+                });
+            }
+
+            updateConnectionStatus(connected) {
+                if (connected) {
+                    this.connectionStatus.classList.add('connected');
+                    this.connectionText.textContent = 'Bağlı';
+                    this.alertBox.classList.remove('show');
+                } else {
+                    this.connectionStatus.classList.remove('connected');
+                    this.connectionText.textContent = 'Bağlantı Kesildi';
+                    this.alertBox.classList.add('show');
+                }
+            }
+
+            handleWeatherUpdate(data) {
+                this.weatherData.set(data.cityName, data);
+                this.updateWeatherCard(data);
+                this.updateLastUpdateTime();
+            }
+
+            handleLatestData(dataArray) {
+                dataArray.forEach(data => {
+                    this.weatherData.set(data.cityName, data);
+                });
+                this.renderAllWeatherCards();
+            }
+
+            updateWeatherCard(data) {
+                const existingCard = document.querySelector(`[data-city="${data.cityName}"]`);
+                if (existingCard) {
+                    existingCard.outerHTML = this.createWeatherCardHTML(data);
+                } else {
+                    if (this.weatherGrid.querySelector('.loading')) {
+                        this.weatherGrid.innerHTML = '';
+                    }
+                    this.weatherGrid.insertAdjacentHTML('beforeend', this.createWeatherCardHTML(data));
+                }
+            }
+
+            renderAllWeatherCards() {
+                this.weatherGrid.innerHTML = '';
+                this.weatherData.forEach(data => {
+                    this.weatherGrid.insertAdjacentHTML('beforeend', this.createWeatherCardHTML(data));
+                });
+            }
+
+            createWeatherCardHTML(data) {
+                const temp = Math.round(data.main.temperature);
+                const feelsLike = Math.round(data.main.feelsLike);
+                const timestamp = new Date(data.timestamp).toLocaleString('tr-TR');
+                
+                return `
+                    <div class="weather-card" data-city="${data.cityName}">
+                        <div class="city-header">
+                            <div class="city-name">${data.cityName}</div>
+                            <div class="timestamp">${timestamp}</div>
+                        </div>
+                        <div class="weather-main">
+                            <div class="temperature">${temp}°C</div>
+                            <div class="weather-condition">
+                                <div class="condition-text">${data.weather.condition}</div>
+                                <div style="color: #7f8c8d;">Hissedilen: ${feelsLike}°C</div>
+                            </div>
+                        </div>
+                        <div class="weather-details">
+                            <div class="detail-item">
+                                <span class="detail-label">💧 Nem</span>
+                                <span class="detail-value">${parseFloat(data.main.humidity).toFixed(1)}%</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">🌬️ Rüzgar</span>
+                                <span class="detail-value">${Math.round(data.wind.speed * 3.6)} km/h</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">📊 Basınç</span>
+                                <span class="detail-value">${data.main.pressure} mb</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">☁️ Bulutluluk</span>
+                                <span class="detail-value">${data.clouds}%</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            updateLastUpdateTime() {
+                this.lastUpdate.textContent = new Date().toLocaleTimeString('tr-TR');
+            }
+
+            showAlert(message) {
+                this.alertBox.textContent = message;
+                this.alertBox.classList.add('show');
+                setTimeout(() => {
+                    this.alertBox.classList.remove('show');
+                }, 5000);
+            }
+        }
+
+        // Dashboard'u başlat
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                new WeatherDashboard();
+            } catch (error) {
+                console.error('Dashboard başlatma hatası:', error);
+            }
+        });
+    </script>
+</body>
+</html>
