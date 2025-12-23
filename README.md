@@ -1,4 +1,4 @@
-# 🌤️ Live-Weather-App
+ Live-Weather-App
 
 ## 📌 Proje Özeti
 
